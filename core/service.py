@@ -132,11 +132,11 @@ class ListMixin(OrderMixin, SearchMixin, FilterMixin, PaginatorMixin):
     model = None
     params = None
 
-    def __init__(self, params: dict,):
+    def __init__(self, params: dict, model: Base):
         super().__init__()
         self.params = params
         self.db = params['params']['default_params']['db']
-        self.model = params['model']
+        self.model = model
         self.page = params['params']['page']['page']
         self.page_size = params['params']['page']['page_size']
         self.ordering = params['params']['ordering']

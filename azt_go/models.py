@@ -26,7 +26,7 @@ class Links(Base):
     name = Column(String(length=70), nullable=False, unique=True)
     slug = Column(String(length=100), unique=True, nullable=False)
     redirect_url = Column(String(length=300), nullable=False, unique=True)
-    category_id = Column(Integer, ForeignKey("categories.slug"))
+    category_id = Column(Integer, ForeignKey("categories.slug"), nullable=True)
     date_of_add = Column('date_of_add', DateTime, default=datetime.datetime.now, nullable=False)
     date_of_update = Column('date_of_update', DateTime, default=datetime.datetime.now,
                             onupdate=datetime.datetime.now, nullable=False)
