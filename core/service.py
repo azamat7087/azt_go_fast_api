@@ -5,7 +5,8 @@ from core.db import Base
 from pydantic import BaseModel
 from fastapi import Query, Depends, Request, HTTPException, status
 from typing import Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, exc
+from sqlalchemy import exc as sql_exc
 import sys
 import math
 
@@ -53,6 +54,7 @@ class MixinBase:
         self.ordering = None
         self.search = None
         self.search_fields = None
+        self.filtering = None
 
 
 class PaginatorMixin(MixinBase):
@@ -74,7 +76,7 @@ class PaginatorMixin(MixinBase):
                 right = self.count
                 left = (self.page - 1) * self.page_size
 
-            return self.query.limit(right).offset(left).all()
+            return self.query.slice(left, right).all()
 
         except Exception as e:
             if str(e) == f"Page is too large. Max page {self.count_of_pages}":
@@ -95,15 +97,13 @@ class PaginatorMixin(MixinBase):
 
 class FilterMixin(MixinBase):
 
-    def clear_params(self):
-        for parameter in ['params', 'model', 'search_fields']:
-            self.params.pop(parameter)
-
-    def params_is_null(self):
-        return all(not value for value in self.params.values())
+    def check_filtering(self):
+        if not self.filtering:
+            return True
+        return all(not value for value in self.filtering.values())
 
     def filter_list(self):
-        return self.db.query(self.model).filter_by(**self.params)
+        return self.db.query(self.model).filter_by(**self.filtering)
 
 
 class OrderMixin(MixinBase):
@@ -142,12 +142,13 @@ class ListMixin(OrderMixin, SearchMixin, FilterMixin, PaginatorMixin):
         self.ordering = params['params']['ordering']
         self.search = params['params']['search']['search']
         self.search_fields = params['search_fields']
-        self.clear_params()
+        self.filtering = params.get('filtering', None)  # filter
+        # self.clear_params()
         self.set_meta_attributes()
 
     def get_list(self):
 
-        if self.params_is_null():
+        if self.check_filtering():
             query = self.db.query(self.model)
         else:
             query = self.filter_list()
@@ -207,11 +208,29 @@ class UpdateMixin:
 
     def update(self, db_object: BaseModel, new_object: BaseModel):
 
-        for attribute, value in vars(new_object).items():
-            setattr(db_object, attribute, value) if value else None
+        try:
+            for attribute, value in vars(new_object).items():
+                setattr(db_object, attribute, value) if value else None
 
-        self.db.add(db_object)
-        self.db.commit()
-        self.db.refresh(db_object)
+            self.db.add(db_object)
+            self.db.commit()
+            self.db.refresh(db_object)
+
+        except sql_exc.IntegrityError as e:
+            raise HTTPException(detail="Wrong foreign key", status_code=400)
 
         return db_object
+
+
+class DeleteMixin:
+    def __init__(self,  db: Session, model: Base):
+        self.db = db
+        self.model = model
+
+    def delete_object(self, pk):
+        try:
+            obj = self.db.query(self.model).filter(self.model.id == pk).first()
+            self.db.delete(obj)
+            self.db.commit()
+        except exc.UnmappedInstanceError:
+            raise HTTPException(detail="Not found", status_code=404)
